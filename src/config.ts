@@ -121,6 +121,12 @@ export interface TelegramConfig {
    *  Supported values: tiny, base, small, medium, large-v3, large-v3-turbo (with or without .en suffix).
    *  Ignored when stt.baseUrl is configured. */
   whisperModel?: string;
+  /** Absolute path to a custom whisper.cpp `whisper-cli` binary. When set,
+   *  claudeclaw uses it instead of downloading the bundled prebuilt — useful on
+   *  CPUs the prebuilt can't run on (e.g. no AVX2/BMI2, which SIGILLs). Should be
+   *  self-contained (statically linked): when a custom binary is used the bundled
+   *  shared libraries are not downloaded. */
+  whisperBinPath?: string;
 }
 
 export interface DiscordConfig {
@@ -344,6 +350,9 @@ function parseSettings(
       dmIsolation: raw.telegram?.dmIsolation === "perUser" ? "perUser" : "shared",
       ...(typeof raw.telegram?.whisperModel === "string" && raw.telegram.whisperModel.trim()
         ? { whisperModel: raw.telegram.whisperModel.trim() }
+        : {}),
+      ...(typeof raw.telegram?.whisperBinPath === "string" && raw.telegram.whisperBinPath.trim()
+        ? { whisperBinPath: raw.telegram.whisperBinPath.trim() }
         : {}),
     },
     discord: {

@@ -65,9 +65,35 @@ type WhisperDebugLog = (message: string) => void;
 
 function noopLog(): void {}
 
+/**
+ * Resolve the whisper-cli path: a user-provided `customPath` wins (so users on
+ * CPUs the bundled prebuilt can't run on can supply their own build), otherwise
+ * fall back to the bundled binary under `binDir`. Exported for testing.
+ */
+export function resolveWhisperBinaryPath(customPath: string | undefined, binDir: string, platform: string): string {
+  const custom = customPath?.trim();
+  if (custom) return custom;
+  const suffix = platform === "win32" ? ".exe" : "";
+  return join(binDir, `whisper-cli${suffix}`);
+}
+
+/** The configured custom whisper-cli path, or undefined (also when settings aren't loaded yet). */
+function getConfiguredWhisperBinPath(): string | undefined {
+  try {
+    return getSettings().telegram.whisperBinPath?.trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Path of the bundled prebuilt binary — the ONLY thing the auto-download manages. */
+function getBundledWhisperBinaryPath(): string {
+  return resolveWhisperBinaryPath(undefined, BIN_DIR, process.platform);
+}
+
+/** The binary to run: the user's custom binary when configured, else the bundled one. */
 function getWhisperBinaryPath(): string {
-  const suffix = process.platform === "win32" ? ".exe" : "";
-  return join(BIN_DIR, `whisper-cli${suffix}`);
+  return resolveWhisperBinaryPath(getConfiguredWhisperBinPath(), BIN_DIR, process.platform);
 }
 
 function getModelPath(): string {
@@ -208,7 +234,7 @@ async function downloadAndExtractBinary(): Promise<void> {
     throw new Error("Could not find whisper-cli or main binary in downloaded archive");
   }
 
-  const destBinary = getWhisperBinaryPath();
+  const destBinary = getBundledWhisperBinaryPath();
   await Bun.write(destBinary, Bun.file(found));
   await chmod(destBinary, 0o755);
 
@@ -250,6 +276,14 @@ async function prepareWhisperAssets(printOutput: boolean): Promise<void> {
 
   const binaryPath = getWhisperBinaryPath();
   if (!(await fileExists(binaryPath))) {
+    // A configured custom binary is the user's to provide — never auto-download
+    // over it (that would reinstate the incompatible prebuilt we're avoiding).
+    if (getConfiguredWhisperBinPath()) {
+      throw new Error(
+        `Configured whisper binary not found: ${binaryPath}. Point telegram.whisperBinPath ` +
+        `at a valid whisper-cli, or remove it to use the bundled download.`
+      );
+    }
     await downloadAndExtractBinary();
   } else {
     console.log("whisper warmup: binary exists");
@@ -409,6 +443,13 @@ export async function transcribeAudioToText(
       rawOutput = runTranscription();
     } catch (err) {
       if (!(err instanceof Error) || !err.message.includes("ENOENT")) throw err;
+      // A configured custom binary is the user's to manage — don't wipe the
+      // bundled dir or re-download the (incompatible) prebuilt on its behalf.
+      if (getConfiguredWhisperBinPath()) {
+        // ENOENT here can mean the file is missing OR present-but-unloadable
+        // (e.g. a dynamically-linked binary whose interpreter/libs aren't found).
+        throw new Error(`Configured whisper binary not found or not runnable: ${binaryPath}. telegram.whisperBinPath must be an executable, self-contained whisper-cli.`);
+      }
       log("voice transcribe: missing whisper executable, forcing re-download and retry");
       warmupPromise = null;
       await rm(BIN_DIR, { recursive: true, force: true });
