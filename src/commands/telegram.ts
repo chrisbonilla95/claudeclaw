@@ -933,6 +933,36 @@ async function downloadMediaFromMessage(
   return { localPath, originalName: media.fileName, kind: media.kind };
 }
 
+/**
+ * Build the prompt for the auto-generated "I was added to a group" intro.
+ * Exported for testing. Passes the bot's own @handle so the model tells users
+ * the correct mention instead of guessing it (and potentially getting it wrong).
+ */
+export function buildGroupAddedPrompt(
+  chatType: string,
+  chatTitle: string,
+  chatId: number,
+  addedBy: string,
+  botUsername: string | null,
+): string {
+  const base =
+    `[Telegram system event] I was added to a ${chatType}.\n` +
+    `Group title: ${wrapUntrusted("group-title", chatTitle)}\n` +
+    `Group id: ${chatId}\n` +
+    `Added by: ${wrapUntrusted("adder-username", addedBy)}\n`;
+  const intro = "Write a short first message for the group. It should confirm I was added and explain how to trigger me";
+
+  if (!botUsername) return base + intro + ".";
+
+  const mention = `@${botUsername}`;
+  return (
+    base +
+    `My Telegram handle is ${mention}; users can only trigger me by mentioning that exact handle.\n` +
+    intro +
+    `, telling them to mention me as ${mention} (use this exact handle — do not invent a different name).`
+  );
+}
+
 async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<void> {
   const config = getSettings().telegram;
   const chat = update.chat;
@@ -957,12 +987,7 @@ async function handleMyChatMember(update: TelegramMyChatMemberUpdate): Promise<v
   console.log(`[Telegram] Added to ${chat.type}: ${chatName} (${chat.id}) by ${update.from.id}`);
 
   const addedBy = update.from.username ?? `${update.from.first_name} (${update.from.id})`;
-  const eventPrompt =
-    `[Telegram system event] I was added to a ${chat.type}.\n` +
-    `Group title: ${wrapUntrusted("group-title", chatName)}\n` +
-    `Group id: ${chat.id}\n` +
-    `Added by: ${wrapUntrusted("adder-username", addedBy)}\n` +
-    "Write a short first message for the group. It should confirm I was added and explain how to trigger me.";
+  const eventPrompt = buildGroupAddedPrompt(chat.type, chatName, chat.id, addedBy, botUsername);
 
   try {
     const result = await run("telegram", eventPrompt);
