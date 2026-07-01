@@ -78,7 +78,7 @@ const DEFAULT_SETTINGS: Settings = {
     excludeWindows: [],
     forwardToTelegram: true,
   },
-  telegram: { token: "", allowedUserIds: [], listenChats: [], receiveEnabled: true, dmIsolation: "shared" },
+  telegram: { token: "", allowedUserIds: [], dmAllowedUserIds: [], listenChats: [], receiveEnabled: true, dmIsolation: "shared" },
   discord: { token: "", allowedUserIds: [], listenChannels: [], listenGuilds: [], allowedGuilds: [], imageOutputRoots: [], streaming: false },
   slack: { botToken: "", appToken: "", allowedUserIds: [], listenChannels: [], allowBots: [], allowBotIds: [] },
   security: { level: "moderate", allowedTools: [], disallowedTools: [] },
@@ -108,6 +108,12 @@ export interface HeartbeatConfig {
 export interface TelegramConfig {
   token: string;
   allowedUserIds: number[];
+  /**
+   * Optional subset of `allowedUserIds` permitted to DM the bot. When empty
+   * (default), any allowed user may DM. When non-empty, only these users may
+   * DM — all other allowed users are limited to group chats.
+   */
+  dmAllowedUserIds: number[];
   listenChats: number[];
   /** When false, skip Telegram polling (incoming messages). Useful for send-only instances. Default: true */
   receiveEnabled: boolean;
@@ -339,6 +345,7 @@ function parseSettings(
     telegram: {
       token: process.env.TELEGRAM_TOKEN?.trim() || (typeof raw.telegram?.token === "string" ? raw.telegram.token.trim() : ""),
       allowedUserIds: raw.telegram?.allowedUserIds ?? [],
+      dmAllowedUserIds: Array.isArray(raw.telegram?.dmAllowedUserIds) ? raw.telegram.dmAllowedUserIds.map(Number) : [],
       listenChats: Array.isArray(raw.telegram?.listenChats) ? raw.telegram.listenChats.map(Number) : [],
       receiveEnabled: raw.telegram?.receiveEnabled !== false,
       dmIsolation: raw.telegram?.dmIsolation === "perUser" ? "perUser" : "shared",

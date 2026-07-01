@@ -1,6 +1,6 @@
 import { ensureProjectClaudeMd, run, runUserMessage, runFork, killActive, isMainBusy, compactCurrentSession, compactCurrentThreadSession, isRateLimited, getRateLimitResetAt, getPermissionMode, setPermissionMode, type PermissionMode } from "../runner";
 import { wrapUntrusted } from "../prompt-safety";
-import { isAllowed } from "../allowlist";
+import { isAllowed, isDmAllowed } from "../allowlist";
 import { extractErrorDetail } from "../messaging";
 import { loadPendingResume } from "../pending-resume";
 import { getSettings, loadSettings } from "../config";
@@ -1032,6 +1032,13 @@ async function handleMessage(message: TelegramMessage): Promise<void> {
     return;
   }
 
+  // Optional DM restriction: allowed users not in dmAllowedUserIds are group-only.
+  if (isPrivate && !isDmAllowed(userId, config.dmAllowedUserIds)) {
+    await sendMessage(config.token, chatId, "I only respond in group chats, not in private messages.");
+    debugLog(`Skip DM chat=${chatId} from=${userId ?? "unknown"} reason=dm_not_allowed`);
+    return;
+  }
+
   if (!text.trim() && !hasImage && !hasVoice && !hasDocument && !hasMedia) {
     debugLog(`Skip message chat=${chatId} from=${userId ?? "unknown"} reason=empty_text`);
     return;
@@ -1569,6 +1576,16 @@ async function handleCallbackQuery(query: TelegramCallbackQuery): Promise<void> 
     await callApi(config.token, "answerCallbackQuery", {
       callback_query_id: query.id,
       text: "Unauthorized.",
+    }).catch(() => {});
+    return;
+  }
+
+  // Same DM restriction as regular messages: group-only users can't act via a
+  // private-chat button either (e.g. a button left over from before they were restricted).
+  if (query.message?.chat.type === "private" && !isDmAllowed(callbackUserId, config.dmAllowedUserIds)) {
+    await callApi(config.token, "answerCallbackQuery", {
+      callback_query_id: query.id,
+      text: "I only respond in group chats.",
     }).catch(() => {});
     return;
   }
