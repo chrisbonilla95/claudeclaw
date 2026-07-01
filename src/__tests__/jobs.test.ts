@@ -64,6 +64,56 @@ describe("loadJobs", () => {
     expect(job?.prompt).toBe("Run nightly report");
   });
 
+  test("parses notify_to into a list of chat IDs (opt-in per-job targets)", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "targeted.md"),
+      jobMd("0 9 * * 1", "Weekly report", "notify_to: [123456789, -1001234567890]")
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "targeted");
+    expect(job?.notifyTo).toEqual([123456789, -1001234567890]);
+  });
+
+  test("notify_to is undefined when omitted (falls back to default recipients)", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "untargeted.md"),
+      jobMd("0 9 * * 1", "Weekly report")
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "untargeted");
+    expect(job?.notifyTo).toBeUndefined();
+  });
+
+  test("accepts camelCase notifyTo as an alias", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "camel.md"),
+      jobMd("0 9 * * 1", "Weekly report", "notifyTo: [42]")
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "camel");
+    expect(job?.notifyTo).toEqual([42]);
+  });
+
+  test("tolerates whitespace-separated ids (no silent id concatenation)", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "spaced.md"),
+      jobMd("0 9 * * 1", "Weekly report", "notify_to: [123 456]")
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "spaced");
+    expect(job?.notifyTo).toEqual([123, 456]);
+  });
+
+  test("malformed notify_to yields undefined (does not fabricate a bogus id)", async () => {
+    await writeFile(
+      join(LEGACY_JOBS_DIR, "bad.md"),
+      jobMd("0 9 * * 1", "Weekly report", "notify_to: [@chris]")
+    );
+    const jobs = await loadJobsInSandbox();
+    const job = jobs.find((j) => j.name === "bad");
+    expect(job?.notifyTo).toBeUndefined();
+  });
+
   test("loads job from agents/<name>/jobs/ (Phase 17 path)", async () => {
     await writeFile(
       join(AGENTS_DIR, "suzy", "jobs", "daily-digest.md"),

@@ -624,12 +624,13 @@ export async function start(args: string[] = []) {
     }
   }
 
-  function forwardToTelegram(label: string, result: { exitCode: number; stdout: string; stderr: string }) {
-    if (!telegramSend || currentSettings.telegram.allowedUserIds.length === 0) return;
+  function forwardToTelegram(label: string, result: { exitCode: number; stdout: string; stderr: string }, targets?: number[]) {
+    const recipients = targets && targets.length > 0 ? targets : currentSettings.telegram.allowedUserIds;
+    if (!telegramSend || recipients.length === 0) return;
     const text = result.exitCode === 0
       ? `${label ? `[${label}]\n` : ""}${result.stdout || "(empty)"}`
       : `${label ? `[${label}] ` : ""}error (exit ${result.exitCode}): ${extractErrorDetail(result) || "Unknown"}`;
-    for (const userId of currentSettings.telegram.allowedUserIds) {
+    for (const userId of recipients) {
       telegramSend(userId, text).catch((err) =>
         console.error(`[Telegram] Failed to forward to ${userId}: ${err}`)
       );
@@ -903,7 +904,7 @@ export async function start(args: string[] = []) {
             }
             if (job.notify === false) return;
             if (job.notify === "error" && r.exitCode === 0) return;
-            forwardToTelegram(job.name, r);
+            forwardToTelegram(job.name, r, job.notifyTo);
             forwardToDiscord(job.name, r);
           })
           .finally(async () => {

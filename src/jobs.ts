@@ -23,6 +23,12 @@ export interface Job {
   retry?: number;
   /** Seconds to wait between retry attempts. Defaults to 300 (5 min). */
   retryDelay?: number;
+  /**
+   * Telegram chat IDs to send this job's notification to (user IDs and/or
+   * negative group IDs). When omitted, the notification falls back to the
+   * default recipients (all `telegram.allowedUserIds`).
+   */
+  notifyTo?: number[];
 }
 
 function parseFrontmatterValue(raw: string): string {
@@ -96,7 +102,22 @@ function parseJobFile(name: string, content: string): Job | null {
   const retryDelayLine = lines.find((l) => l.startsWith("retry_delay:"));
   const retryDelay = retryDelayLine ? parseInt(parseFrontmatterValue(retryDelayLine.replace("retry_delay:", "")), 10) || undefined : undefined;
 
-  return { name, schedule, prompt, recurring, notify, model, timeoutSeconds, agent, label, enabled, retry, retryDelay };
+  const notifyToKey = /^notify_?[tT]o:/;
+  const notifyToLine = lines.find((l) => notifyToKey.test(l));
+  const notifyToParsed = notifyToLine
+    ? parseFrontmatterValue(notifyToLine.replace(notifyToKey, ""))
+        .replace(/[[\]]/g, " ")        // drop the surrounding brackets
+        .split(/[\s,]+/)               // ids may be comma- and/or whitespace-separated
+        .map((s) => parseInt(s, 10))
+        .filter((n) => Number.isFinite(n))
+    : [];
+  const notifyTo = notifyToParsed.length > 0 ? notifyToParsed : undefined;
+  // A malformed notify_to shouldn't silently widen the audience to everyone.
+  if (notifyToLine && !notifyTo) {
+    console.warn(`Job "${name}": notify_to is set but no valid chat IDs were parsed; using default recipients.`);
+  }
+
+  return { name, schedule, prompt, recurring, notify, model, timeoutSeconds, agent, label, enabled, retry, retryDelay, notifyTo };
 }
 
 export async function loadJobs(): Promise<Job[]> {
